@@ -4,6 +4,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -14,28 +15,30 @@ import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import com.music.player.media.MediaPlayerService;
 import com.music.player.media.MediaSource;
 import com.music.player.media.SongListAdapter;
 import com.music.player.model.MediaItem;
 
 import java.io.IOException;
 
-public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener, MediaPlayer.OnPreparedListener, View.OnClickListener, MediaPlayer.OnCompletionListener {
+public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener, View.OnClickListener {
 
     ListView songListView;
-    MediaPlayer mediaPlayer;
     MediaSource mediaSource;
     SongListAdapter songListAdapter;
     ImageButton playPauseMediaButton;
     ImageButton nextMediaButton;
     ImageButton previousButton;
     private static int currentPlayingMediaPosition;
+    static boolean isLoadingFirstTime = true;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         songListView = findViewById(R.id.songListView);
         playPauseMediaButton = findViewById(R.id.playPauseButton);
         nextMediaButton = findViewById(R.id.nextButton);
@@ -43,8 +46,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         previousButton.setOnClickListener(this);
         nextMediaButton.setOnClickListener(this);
         playPauseMediaButton.setOnClickListener(this);
-        mediaSource = new MediaSource(this);
-        mediaPlayer = new MediaPlayer();
+        mediaSource = MediaSource.getInstance(getContentResolver());
+
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED) {
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, 1000);
         } else {
@@ -55,6 +58,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
     @Override
     protected void onDestroy() {
+        stopService(getIntent(""));
         super.onDestroy();
     }
 
@@ -71,97 +75,78 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     }
 
     @Override
-    public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
-        MediaItem mediaItem = (MediaItem) view.getTag();
-        currentPlayingMediaPosition = i;
-        prepareAndPlay(mediaPlayer, mediaItem);
-        Toast.makeText(this, "song " + mediaItem.getName(), Toast.LENGTH_SHORT).show();
+    protected void onStart() {
+
+        super.onStart();
     }
 
     @Override
-    public void onPrepared(MediaPlayer mediaPlayer) {
-        playSong();
+    public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+        if (isLoadingFirstTime) {
+            mediaSource.updateBackgroundList(mediaSource.getAllMedia());
+            isLoadingFirstTime = false;
+        }
+        mediaSource.setMediaAsCurrent(i);
+
+        currentPlayingMediaPosition = i;
+
+        playPauseMediaButton.setImageResource(R.drawable.media_pause_image);
+        playPauseMediaButton.setTag("PLAY");
+        startSongBackground("CLICKED");
+        Toast.makeText(this, "song " , Toast.LENGTH_SHORT).show();
     }
 
     void initialize() {
-        mediaPlayer.setOnPreparedListener(this);
-        mediaPlayer.setOnCompletionListener(this);
+
         songListView.setOnItemClickListener(this);
         songListAdapter = new SongListAdapter(this, mediaSource.getAllMediaItems());
+        songListAdapter.setNotifyOnChange(true);
         songListView.setAdapter(songListAdapter);
+
+
     }
 
 
     @Override
     public void onClick(View view) {
-
+        String command = null;
         switch (view.getId()) {
             case R.id.nextButton:
-                playNextSong();
+                command = "NEXT";
                 break;
             case R.id.previousButton:
-                playPreviousSong();
+                command = "PREVIOUS";
                 break;
             case R.id.playPauseButton:
-                if (mediaPlayer.isPlaying()) {
-                    pauseSong();
+                if (playPauseMediaButton.getTag().toString().equalsIgnoreCase("Pause")) {
+                    playPauseMediaButton.setImageResource(R.drawable.media_pause_image);
+                    command = "PLAY";
+                    playPauseMediaButton.setTag("PLAY");
                 } else {
-                    playSong();
+                    playPauseMediaButton.setImageResource(R.drawable.media_play_image);
+                    command = "PAUSE";
+                    playPauseMediaButton.setTag("PAUSE");
                 }
                 break;
         }
-
+        startSongBackground(command);
     }
 
-    void playNextSong() {
-        incrementPosition();
-        MediaItem mediaItem = mediaSource.getMedia(currentPlayingMediaPosition);
-        prepareAndPlay(mediaPlayer, mediaItem);
-    }
 
-    void playPreviousSong() {
-        decrementPosition();
-        MediaItem mediaItem = mediaSource.getMedia(currentPlayingMediaPosition);
-        prepareAndPlay(mediaPlayer, mediaItem);
-    }
-
-    private void prepareAndPlay(MediaPlayer mediaPlayer, MediaItem mediaItem) {
+    private void startSongBackground(String command) {
+        Intent intent = getIntent(command);
         try {
-            mediaPlayer.reset();
-            if (mediaPlayer.isPlaying()) {
-                mediaPlayer.stop();
-            }
-            mediaPlayer.setDataSource(this, Uri.parse(mediaItem.getUri()));
-            mediaPlayer.prepare();
-        } catch (IOException e) {
+            startService(intent);
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private void incrementPosition() {
-        currentPlayingMediaPosition = ++currentPlayingMediaPosition;
-    }
-
-    private void decrementPosition() {
-        currentPlayingMediaPosition = --currentPlayingMediaPosition;
-    }
-
-    private void playSong() {
-        playPauseMediaButton.setImageResource(R.drawable.media_pause_image);
-        mediaPlayer.start();
-        if (!mediaPlayer.isPlaying()) {
-            prepareAndPlay(mediaPlayer, mediaSource.getMedia(currentPlayingMediaPosition));
-        }
-    }
-
-    private void pauseSong() {
-        playPauseMediaButton.setImageResource(R.drawable.media_play_image);
-        mediaPlayer.pause();
-    }
-
-    @Override
-    public void onCompletion(MediaPlayer mediaPlayer) {
-        playNextSong();
+    private Intent getIntent(String command) {
+        Intent musicPlayerIntent = new Intent(this, MediaPlayerService.class);
+        musicPlayerIntent.setAction(command);
+        return musicPlayerIntent;
     }
 
 }

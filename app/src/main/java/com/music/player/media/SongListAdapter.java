@@ -39,4 +39,8 @@ public class SongListAdapter extends ArrayAdapter<MediaItem> {
         return convertView;
     }
 
+    @Override
+    public void notifyDataSetChanged() {
+        super.notifyDataSetChanged();
+    }
 }
